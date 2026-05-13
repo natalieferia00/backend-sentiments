@@ -5,6 +5,13 @@ from pydantic import BaseModel
 from deep_translator import GoogleTranslator
 from motor.motor_asyncio import AsyncIOMotorClient
 import datetime
+import nltk  # <--- IMPORTA NLTK
+
+# Descarga los recursos necesarios para TextBlob en el servidor de Render
+try:
+    nltk.data.find('tokenizers/punkt')
+except LookupError:
+    nltk.download('punkt', quiet=True)
 
 # 1. DEFINIR LA APP PRIMERO
 app = FastAPI()
@@ -16,7 +23,6 @@ db = client.sentiment_db
 collection = db.history
 
 # 3. CONFIGURAR CORS
-# Al usar ["*"] en allow_origins, NO debemos incluir allow_credentials=True
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -31,7 +37,6 @@ class AnalysisRequest(BaseModel):
 @app.post("/analyze")
 async def analyze_text(request: AnalysisRequest):
     try:
-        # Traducción e IA
         translated = GoogleTranslator(source='auto', target='en').translate(request.text)
         blob = TextBlob(translated)
         polarity = blob.sentiment.polarity
@@ -51,13 +56,13 @@ async def analyze_text(request: AnalysisRequest):
             "date": datetime.datetime.now().strftime("%H:%M:%S")
         }
         
-        # Guardar en Atlas
         await collection.insert_one(result.copy())
-        
         return result
     except Exception as e:
-        print(f"Error en analyze: {e}")
-        return {"error": "No se pudo procesar el análisis"}
+        print(f"Error crítico en analyze: {e}")
+        # Retornamos explícitamente un estado HTTP 500 para que no se disfrace de error de red
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/history")
 async def get_history():
