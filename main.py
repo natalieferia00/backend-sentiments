@@ -10,13 +10,13 @@ import datetime
 app = FastAPI()
 
 # 2. CONFIGURAR MONGODB ATLAS
-# Reemplaza <db_password> con tu contraseña real
 MONGO_URL = "mongodb+srv://natalieferia1122:1003498135@cluster0.27dplvb.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
 client = AsyncIOMotorClient(MONGO_URL)
 db = client.sentiment_db
 collection = db.history
 
 # 3. CONFIGURAR CORS
+# Al usar ["*"] en allow_origins, NO debemos incluir allow_credentials=True
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -27,7 +27,7 @@ app.add_middleware(
 class AnalysisRequest(BaseModel):
     text: str
 
-# 4. ENDPOINTS (Ahora sí usamos @app)
+# 4. ENDPOINTS
 @app.post("/analyze")
 async def analyze_text(request: AnalysisRequest):
     try:
