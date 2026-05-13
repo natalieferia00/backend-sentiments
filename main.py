@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from deep_translator import GoogleTranslator
 from motor.motor_asyncio import AsyncIOMotorClient
 import datetime
-import nltk  # <--- IMPORTA NLTK
+import nltk
 
 # Descarga los recursos necesarios para TextBlob en el servidor de Render
 try:
@@ -13,7 +13,7 @@ try:
 except LookupError:
     nltk.download('punkt', quiet=True)
 
-# 1. DEFINIR LA APP PRIMERO
+# 1. DEFINIR LA APP
 app = FastAPI()
 
 # 2. CONFIGURAR MONGODB ATLAS
@@ -22,7 +22,7 @@ client = AsyncIOMotorClient(MONGO_URL)
 db = client.sentiment_db
 collection = db.history
 
-# 3. CONFIGURAR CORS
+# 3. CONFIGURAR CORS PLANO (Sin credenciales para que acepte el asterisco)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -33,10 +33,11 @@ app.add_middleware(
 class AnalysisRequest(BaseModel):
     text: str
 
-# 4. ENDPOINTS
+# 4. ENDPOINT ÚNICO PARA ANALIZAR PALABRAS
 @app.post("/analyze")
 async def analyze_text(request: AnalysisRequest):
     try:
+        # Traducción e IA
         translated = GoogleTranslator(source='auto', target='en').translate(request.text)
         blob = TextBlob(translated)
         polarity = blob.sentiment.polarity
@@ -56,22 +57,30 @@ async def analyze_text(request: AnalysisRequest):
             "date": datetime.datetime.now().strftime("%H:%M:%S")
         }
         
+        # Guardar registro en Atlas
         await collection.insert_one(result.copy())
+        
         return result
     except Exception as e:
-        print(f"Error crítico en analyze: {e}")
-        # Retornamos explícitamente un estado HTTP 500 para que no se disfrace de error de red
+        print(f"Error en analyze: {e}")
         from fastapi import HTTPException
         raise HTTPException(status_code=500, detail=str(e))
 
+# 5. NUEVO ENDPOINT: CONSULTAR EL HISTORIAL DE MONGODB
 @app.get("/history")
 async def get_history():
     try:
-        cursor = collection.find().sort("_id", -1).limit(5)
-        history = await cursor.to_list(length=5)
-        for item in history:
-            item["_id"] = str(item["_id"])
-        return history
+        # Busca los últimos 10 registros guardados, ordenados del más reciente al más antiguo
+        cursor = collection.find().sort("_id", -1).limit(10)
+        history_list = []
+        
+        async for document in cursor:
+            # Convertimos el ObjectId de MongoDB a string para evitar errores de serialización JSON
+            document["_id"] = str(document["_id"])
+            history_list.append(document)
+            
+        return history_list
     except Exception as e:
         print(f"Error en history: {e}")
-        return []
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail=str(e))
